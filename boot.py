@@ -1,86 +1,88 @@
+import random
+from neopixel import NeoPixel
 from machine import Pin
 import utime
-from neopixel import NeoPixel
-from WSclient import WSclient
 from WebSocketClient import WebSocketClient
+from WSclient import WSclient
+import uasyncio as asyncio
 
-# Initialize WebSocket client
-ws_client = WSclient("Cudy-EFFC", "33954721", "ws://192.168.10.31:8080/step3")
-# ws_client = WSclient("Potatoes 2.4Ghz", "Hakunamatata7342!", "ws://192.168.2.241:8080/step3")
+NUM_LEDS = 20
+NEOPIXEL_PIN = Pin(13)
+led_strip = NeoPixel(NEOPIXEL_PIN, NUM_LEDS)
+fade_running = False
+current_intensity = 255
+fade_step = 255 / (60 * 20)  # 60 secondes * 20 steps/seconde
 
-# Configuration du bandeau LED WS2812
-LED_PIN = 13  # GPIO où est connecté le bandeau
-NUM_LEDS = 30  # Nombre de LEDs dans le bandeau
-led_strip = NeoPixel(Pin(LED_PIN), NUM_LEDS)
+WebSocket_URL = "ws://192.168.10.31:8080/step3"
 
-# Attempt to connect WiFi and WebSocket
 def setup_connection():
+    ws_client = WSclient("Cudy-EFFC", "33954721", WebSocket_URL)
     try:
         if ws_client.connect_wifi():
-            ws = WebSocketClient(ws_client.WEBSOCKET_URL)
+            ws = WebSocketClient(WebSocket_URL)
             if ws.connect():
                 print("WebSocket connection established")
                 ws.send("Métal connecté")
                 return ws
-        print("Failed to establish connection")
         return None
     except Exception as e:
         print(f"Connection error: {e}")
         return None
 
-# Fonction pour allumer ou éteindre tout le bandeau
-def set_strip_color(color):
-    """
-    Met tout le bandeau à une couleur donnée.
-    :param color: Tuple RGB, par exemple (255, 0, 0) pour rouge.
-    """
+def set_red_intensity(intensity):
+    intensity = int(max(0, min(255, intensity)))
     for i in range(NUM_LEDS):
-        led_strip[i] = color
-    led_strip.write()  # Envoie les couleurs au bandeau
-    
-# Fonction pour gérer les commandes reçues
-def control_led_strip(command):
-    try:
-        if command.startswith("COLOR:"):
-            # Extraire la couleur au format RGB (ex: COLOR:255,0,0)
-            _, rgb = command.split(":")
-            r, g, b = map(int, rgb.split(","))
-            set_strip_color((r, g, b))
-            print(f"LED strip set to color: ({r}, {g}, {b})")
-        elif command == "OFF":
-            set_strip_color((0, 0, 0))  # Éteindre le bandeau
-            print("LED strip turned OFF")
-        else:
-            print(f"Unknown command: {command}")
-    except Exception as e:
-        print(f"Error processing command: {e}")
+        led_strip[i] = (intensity, 0, 0)
+    led_strip.write()
 
-# Establish WebSocket connection
-ws = setup_connection()
-
-control_led_strip("COLOR:255,0,0")
-
-try:
+async def run_main_loop():
+    global fade_running, current_intensity
     while True:
+        if fade_running and current_intensity > 0:
+            current_intensity = max(0, current_intensity - fade_step)
+            set_red_intensity(current_intensity)
+            if current_intensity == 0:
+                fade_running = False
+        await asyncio.sleep_ms(50)
+
+async def listen_websocket(ws):
+    global fade_running, current_intensity
+    while True:
+        try:
+            msg = ws.receive()
+            if msg == "Metal-Start":
+                fade_running = True
+                current_intensity = 255
+                set_red_intensity(current_intensity)
+            elif msg == "Metal-Stop":
+                fade_running = False
+                current_intensity = 0
+                set_red_intensity(0)
+        except Exception as e:
+            print(f"WebSocket error: {e}")
+            break
+        await asyncio.sleep_ms(100)
+
+async def main():
+    ws = setup_connection()
+    if not ws:
+        print("Failed to start - no connection")
+        return
+    
+    try:
+        await asyncio.gather(
+            run_main_loop(),
+            listen_websocket(ws)
+        )
+    except Exception as e:
+        print(f"Error: {e}")
+    finally:
+        set_red_intensity(0)
         if ws:
-            try:
-                # Check for messages from the WebSocket server
-                message = ws.receive()
-                if message == "Chaud":
-                    print(f"Received message: {message}")
-                    control_led_strip("ON")  # Control the LED strip based on the message
-            except Exception as e:
-                print(f"Receive error: {e}")
-                ws = setup_connection()  # Attempt to reconnect if receiving fails
+            ws.close()
 
-        utime.sleep(0.1)  # Short delay to avoid excessive polling
-
-except KeyboardInterrupt:
-    print("Exiting program")
-finally:
-    # Ensure WebSocket is closed and LED strip is off
-    if ws:
-        ws.close()
-    led_strip.value(0)
-    print("LED strip turned OFF, program terminated")
-
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        set_red_intensity(0)
