@@ -106,5 +106,5 @@ class WSclient:
 
 # Usage
 if __name__ == "__main__":
-    client = WSclient("Cudy-EFFC", "33954721", "ws://192.168.10.244:8080/step3")
+    client = WSclient("Cudy-EFFC", "33954721", "ws://192.168.10.31:8080/step1")
     client.main()
