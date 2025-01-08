@@ -14,7 +14,8 @@ led_strip = NeoPixel(NEOPIXEL_PIN, NUM_LEDS)
 fade_running = False
 current_intensity = 255
 FADE_DURATION = 40  # 40 secondes
-fade_step = 255 / FADE_DURATION  # Diminution par seconde
+current_duration = FADE_DURATION  # Durée actuelle qui peut être modifiée
+fade_step = 255 / FADE_DURATION
 start_time = 0
 
 WebSocket_URL = "ws://192.168.10.31:8080/metal"
@@ -45,24 +46,40 @@ def set_red_intensity(intensity):
         led_strip[i] = (intensity, 0, 0)
     led_strip.write()
 
+def reduce_duration():
+    global current_duration, start_time
+    elapsed_time = utime.time() - start_time
+    remaining_time = max(0, current_duration - elapsed_time)
+    
+    # Réduire le temps restant de 10 secondes, minimum 0
+    new_remaining_time = max(0, remaining_time - 10)
+    
+    # Ajuster le temps de début pour maintenir la progression relative
+    if remaining_time > 0:
+        progress = elapsed_time / current_duration
+        current_duration = new_remaining_time + elapsed_time
+        # Ajuster le temps de début pour maintenir la même intensité relative
+        start_time = utime.time() - (progress * current_duration)
+
 async def run_main_loop():
-    global fade_running, current_intensity, start_time
+    global fade_running, current_intensity, start_time, current_duration
     while True:
         if fade_running:
             elapsed_time = utime.time() - start_time
-            if elapsed_time < FADE_DURATION:
+            if elapsed_time < current_duration:
                 # Calculer l'intensité en fonction du temps écoulé
-                current_intensity = 255 * (1 - elapsed_time / FADE_DURATION)
+                current_intensity = 255 * (1 - elapsed_time / current_duration)
                 set_red_intensity(current_intensity)
             else:
-                # Arrêter le fade après 60 secondes
+                # Arrêter le fade
                 fade_running = False
                 current_intensity = 0
+                current_duration = FADE_DURATION  # Réinitialiser la durée
                 set_red_intensity(0)
         await asyncio.sleep_ms(50)
 
 async def listen_websocket(ws):
-    global fade_running, current_intensity, start_time
+    global fade_running, current_intensity, start_time, current_duration
     while True:
         try:
             msg = ws.receive()
@@ -75,21 +92,26 @@ async def listen_websocket(ws):
                 print("red")
                 fade_running = True
                 current_intensity = 255
-                start_time = utime.time()  # Enregistrer le temps de début
+                current_duration = FADE_DURATION  # Réinitialiser la durée
+                start_time = utime.time()
                 set_red_intensity(current_intensity)
                 print(f"Intensité actuelle : {current_intensity}")
             
             elif msg == "Impact":
                 print("Impact")
+                if fade_running:
+                    reduce_duration()
+                    print(f"Temps restant réduit de 10s. Nouveau temps : {current_duration}")
             
             elif msg == "ping":
-                ws.send ("Metal - pong")
-                
+                ws.send("Metal - pong")
             
             elif msg == "Metal-Stop":
                 fade_running = False
                 current_intensity = 0
+                current_duration = FADE_DURATION  # Réinitialiser la durée
                 set_red_intensity(0)
+                
         except Exception as e:
             print(f"WebSocket error: {e}")
             break
