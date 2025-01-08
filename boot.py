@@ -17,7 +17,7 @@ FADE_DURATION = 40  # 40 secondes
 fade_step = 255 / FADE_DURATION  # Diminution par seconde
 start_time = 0
 
-WebSocket_URL = "ws://192.168.10.31:8080/step1"
+WebSocket_URL = "ws://192.168.10.31:8080/metal"
 
 def setup_connection():
     ws_client = WSclient("Cudy-EFFC", "33954721", WebSocket_URL)
@@ -79,6 +79,8 @@ async def listen_websocket(ws):
                 set_red_intensity(current_intensity)
                 print(f"Intensité actuelle : {current_intensity}")
             
+            elif msg == "Impact":
+                print("Impact")
             
             elif msg == "ping":
                 ws.send ("Metal - pong")
