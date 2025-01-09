@@ -27,7 +27,7 @@ def setup_connection():
             ws = WebSocketClient(WebSocket_URL)
             if ws.connect():
                 print("WebSocket connection established")
-                ws.send("Métal connecté")
+                ws.send("connect")
                 # Code de test
                 for i in range(NUM_LEDS):
                     led_strip[i] = (255, 0, 0)
@@ -105,6 +105,13 @@ async def listen_websocket(ws):
             
             elif msg == "ping":
                 ws.send("Metal - pong")
+                
+            elif msg == "led_blink":
+                for i in range(NUM_LEDS):
+                    led_strip[i] = (255, 0, 0)
+                    led_strip.write()
+                    led_strip[i] = (0, 0, 0)
+                    led_strip.write()
             
             elif msg == "Metal-Stop":
                 fade_running = False
